@@ -36,6 +36,10 @@ why I don't release a binary yet. I will release a binary when it's fixed.
 Dependencies:
 A working installation of the latest libnx from the github repo
 
+You can download cardboard printouts from Nintendo: https://www.nintendo.co.jp/labo/assets/pdf/parts/var/HAC-051b_A_1.pdf
+or 3d print them from: https://www.thingiverse.com/thing:2874008
+
+
 Tcm0 from the FUK-Team
 www.FUK-Team.tk
 
