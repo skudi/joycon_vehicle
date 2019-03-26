@@ -126,25 +126,20 @@ int main(int argc, char **argv)
 
 		if (kDown & KEY_PLUS) break; // break in order to return to hbmenu
 		
-		//Draw the IR image
 			
-		rc = irsGetImageTransferProcessorState(irhandle, ir_buffer, ir_buffer_size, &state);
-
 		u32 stride;
 		u32* framebuf = (u32*)framebufferBegin(&fb, &stride);
 
+		//Draw the IR image if it's ready
+		rc = irsGetImageTransferProcessorState(irhandle, ir_buffer, ir_buffer_size, &state);
 		if (R_SUCCEEDED(rc)) {
-			//make the complete framebuffer black
-			memset(framebuf, 0, stride*FB_HEIGHT);
-
 			//IR image width/height with the default config.
 			//The image is grayscale (1 byte per pixel / 8bits, with 1 color-component).
-
 			for (y=0; y<ir_height; y++)//Access the buffer linearly.
 			{
 				for (x=0; x<ir_width; x++)
 				{
-					scrpos = y * stride/sizeof(u32) + x-(ir_width/2) + 640;		//Position of the current pixel in the frame buffer for the screen
+					scrpos = y * stride/sizeof(u32) + (ir_width/2) + FB_WIDTH/2 - x;		//draw IR screen from right to left at the center
 					irpos = x * ir_height + y;//The IR image/camera is sideways with the joycon held flat. Position of the current
 					//pixel at the image buffer of the camera
 					framebuf[scrpos] = RGBA8_MAXALPHA(/*ir_buffer[irpos]*/0, ir_buffer[irpos], /*ir_buffer[irpos]*/0);	//The R and B values are 0
@@ -158,6 +153,8 @@ int main(int argc, char **argv)
 		for (int i = 0; i < touch_count; i++)
 		{
 			hidTouchRead(&touch, i);
+			//draw dot at touched point //DEBUG
+			framebuf[touch.py*stride/sizeof(u32)+touch.px]=RGBA8_MAXALPHA(0xff,0,0); //DEBUG
 			if(touch.px <= 640 && touch_count > 0) {
 				left_on = 1;
 			}
@@ -172,20 +169,16 @@ int main(int argc, char **argv)
 			if (R_FAILED(rc2)) error_screen("hidSendVibrationValue() returned: 0x%x\n", rc2);
 		}
 			
-		if (right_on == 0 && prev_right_on == 1) {
+		if (right_on == 1 && prev_right_on == 0) {
 			//left joycon
 			rc2 = hidSendVibrationValue(&VibrationDeviceHandles[0], &VibrationValue);
 			if (R_FAILED(rc2)) error_screen("hidSendVibrationValue() returned: 0x%x\n", rc2);
 		}
-		//iprintf("TC: %d, Tl: %d, TR: %d\n", touch_count, left_on, right_on);
 			
-		//All debugging printfs in the loop are commented out because it would interfere with the IR image
 		//Turn rumble motors back off when the screen region isn't pressed any more.
 		if (left_on == 0) rc2 = hidSendVibrationValue(&VibrationDeviceHandles[1], &VibrationValue_stop);
-		//if (R_FAILED(rc2)) printf("hidSendVibrationValue() for stop returned: 0x%x\n", rc2);
 
 		if (right_on == 0) rc2 = hidSendVibrationValue(&VibrationDeviceHandles[0], &VibrationValue_stop);
-		//if (R_FAILED(rc2)) printf("hidSendVibrationValue() for stop returned: 0x%x\n", rc2);
 		
 		prev_left_on = left_on;
 		prev_right_on = right_on;
