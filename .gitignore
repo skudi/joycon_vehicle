@@ -1,1 +1,7 @@
+build
 *.swp
+*.elf
+*.nacp
+*.nro
+*.nso
+*.pfs0
