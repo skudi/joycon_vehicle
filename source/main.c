@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <math.h>
 
 #include <switch.h>
 
 // Define the desired framebuffer resolution (here we set it to 720p).
 #define FB_WIDTH  1280
 #define FB_HEIGHT 720
+#define MAXVOL 0.8f;
 
 void userAppInit(void)
 {
@@ -43,9 +45,11 @@ static int error_screen(const char* fmt, ...)
 	return EXIT_FAILURE;
 }
 
+#define RUMBLECOUNT 2
+
 int main(int argc, char **argv)
 {
-	u32 VibrationDeviceHandles[2];
+	u32 VibrationDeviceHandles[RUMBLECOUNT];
 	Result rc = 0, rc2 = 0;
 	
 	u32 irhandle=0;
@@ -58,27 +62,20 @@ int main(int argc, char **argv)
 	const u32 ir_height = 320;
 	u32 scrpos, irpos=0;
 	
-	HidVibrationValue VibrationValue;
-	HidVibrationValue VibrationValue_stop;
+	HidVibrationValue VibrationValue[RUMBLECOUNT];
+	float newVolume[RUMBLECOUNT];
 
 	//Two VibrationDeviceHandles are returned: first one for left-joycon, second one for right-joycon.
 	rc = hidInitializeVibrationDevices(VibrationDeviceHandles, 2, CONTROLLER_PLAYER_1, LAYOUT_DEFAULT);
 
-	VibrationValue.amp_low   = 0.2f;
-	VibrationValue.freq_low  = 10.0f;
-	VibrationValue.amp_high  = 2.0f;
-	VibrationValue.freq_high = 166.0f;	//previously 170
+	for (int rumbleNum=0; rumbleNum<RUMBLECOUNT; rumbleNum++) {
+		//initialize vibration settings for booth rumbles
+		VibrationValue[rumbleNum].freq_low  = 10.0f;
+		VibrationValue[rumbleNum].amp_low   = 0.0f;
+		VibrationValue[rumbleNum].freq_high = 166.0f;
+		VibrationValue[rumbleNum].amp_high  = 0.0f;
+	}
 
-	memset(&VibrationValue_stop, 0, sizeof(HidVibrationValue));
-	// Switch like stop behavior with muted band channels and frequencies set to default.
-	VibrationValue_stop.freq_low  = 160.0f;
-	VibrationValue_stop.freq_high = 320.0f;
-		
-	char left_on = 0;
-	char right_on = 0;
-	char prev_left_on = 0;
-	char prev_right_on = 0;
-	
 	//Initialization of the IR camera
 	ir_buffer = (u8*)malloc(ir_buffer_size);
 	if (!ir_buffer)
@@ -146,6 +143,10 @@ int main(int argc, char **argv)
 				}
 			}
 		}
+
+		for (int rumbleNum=0; rumbleNum<RUMBLECOUNT; rumbleNum++) {
+			newVolume[rumbleNum] = 0;
+		}
 			
 		//Calling hidSendVibrationValue is really only needed when sending a new VibrationValue.
 		//Turn the rumble motors on when the correct side of the screen gets pressed
@@ -155,36 +156,34 @@ int main(int argc, char **argv)
 			hidTouchRead(&touch, i);
 			//draw dot at touched point //DEBUG
 			framebuf[touch.py*stride/sizeof(u32)+touch.px]=RGBA8_MAXALPHA(0xff,0,0); //DEBUG
-			if(touch.px <= 640 && touch_count > 0) {
-				left_on = 1;
+			int rumbleNum = 0; //right rumble
+			if(touch.px < 640) {
+				rumbleNum = 1; //left rumble
 			}
-			if(touch.px >= 640 && touch_count > 0) {
-				right_on = 1;
+			newVolume[rumbleNum] = (1.0f - (float)touch.py / (float)FB_HEIGHT) * MAXVOL;
+		}
+
+		//send new vibration settings if they differ from current
+		for (int rumbleNum=0; rumbleNum<RUMBLECOUNT; rumbleNum++) {
+			if (VibrationValue[rumbleNum].amp_high != newVolume[rumbleNum]) {
+				framebuf[(int)(VibrationValue[rumbleNum].amp_high*FB_HEIGHT*stride/sizeof(u32))+rumbleNum*(FB_WIDTH-1)]=RGBA8_MAXALPHA(0xff,0,0); //DEBUG
+				framebuf[(int)(newVolume[rumbleNum]*FB_HEIGHT*stride/sizeof(u32))+rumbleNum*(FB_WIDTH-1)]=RGBA8_MAXALPHA(0,0xff,0); //DEBUG
+				VibrationValue[rumbleNum].amp_high = newVolume[rumbleNum];
+				VibrationValue[rumbleNum].amp_low = newVolume[rumbleNum]>0?0.2f:0.0f;
+				rc = hidSendVibrationValue(&VibrationDeviceHandles[rumbleNum], &VibrationValue[rumbleNum]);
+				if (R_FAILED(rc2)) error_screen("hidSendVibrationValue() returned: 0x%x\n", rc);
 			}
 		}
 			
-		if (left_on == 1 && prev_left_on == 0) {
-			//right joycon (the vehicle goes left if the right joy con vibrates)
-			rc2 = hidSendVibrationValue(&VibrationDeviceHandles[1], &VibrationValue);
-			if (R_FAILED(rc2)) error_screen("hidSendVibrationValue() returned: 0x%x\n", rc2);
-		}
-			
-		if (right_on == 1 && prev_right_on == 0) {
-			//left joycon
-			rc2 = hidSendVibrationValue(&VibrationDeviceHandles[0], &VibrationValue);
-			if (R_FAILED(rc2)) error_screen("hidSendVibrationValue() returned: 0x%x\n", rc2);
-		}
-			
-		//Turn rumble motors back off when the screen region isn't pressed any more.
-		if (left_on == 0) rc2 = hidSendVibrationValue(&VibrationDeviceHandles[1], &VibrationValue_stop);
-
-		if (right_on == 0) rc2 = hidSendVibrationValue(&VibrationDeviceHandles[0], &VibrationValue_stop);
-		
-		prev_left_on = left_on;
-		prev_right_on = right_on;
-		left_on = right_on = 0;
-
 		framebufferEnd(&fb);
+	}
+
+	//mute vibrations
+	for (int rumbleNum=0; rumbleNum<RUMBLECOUNT; rumbleNum++) {
+		VibrationValue[rumbleNum].amp_high = 0.0f;
+		VibrationValue[rumbleNum].amp_low = 0.0f;
+		rc = hidSendVibrationValue(&VibrationDeviceHandles[rumbleNum], &VibrationValue[rumbleNum]);
+		if (R_FAILED(rc2)) error_screen("hidSendVibrationValue() returned: 0x%x\n", rc);
 	}
 
 	framebufferClose(&fb);
